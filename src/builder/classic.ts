@@ -163,11 +163,13 @@ export class ClassicTarget implements FileLike {
     filename: string;
     dirname: string;
     source: ClassicSource;
+    targetFile: ClassicTargetFile;
 
-    constructor(filename: string, dirname: string, source: ClassicSource) {
+    constructor(filename: string, dirname: string, source: ClassicSource, targetFile: ClassicTargetFile) {
         this.filename = filename;
         this.dirname = dirname;
         this.source = source;
+        this.targetFile = targetFile;
     }
 
     isIni(): boolean {
@@ -175,7 +177,7 @@ export class ClassicTarget implements FileLike {
     }
 }
 
-export class ClassicSyncBuilder implements Builder<ClassicSource, ClassicTarget> {
+export class ClassicBuilderSync implements Builder<ClassicSource, ClassicTarget> {
     context: {
         rootDir: string;
         srcDir: string;

@@ -12,7 +12,7 @@ radius = 11
 displayRadius = 11
 isBio = false
 softCollisionOnAll = 0
-a = ['a', 'b', 'c']
+a = {}
 [graphics]
 total_frames = 3
 image =        "tank.png"
