@@ -26,6 +26,14 @@ export class Result<T, E = Error> {
         }
         return this;
     }
+
+    unwrap(): T {
+        if(this.result instanceof Ok<T>) {
+            return this.result.value;
+        } else {
+            throw new Error('value is Err');
+        }
+    }
 }
 
 export function result<T, E = Error>(result: Ok<T> | Err<E>): Result<T, E> {
@@ -39,8 +47,8 @@ class Ok<T> {
     }
 }
 
-export function ok<T>(value: T): Ok<T> {
-    return new Ok(value);
+export function ok<T, E = Error>(value: T): Result<T, E> {
+    return new Result<T, E>(new Ok(value));
 }
 
 class Err<E> {
@@ -50,6 +58,6 @@ class Err<E> {
     }
 }
 
-export function err<E>(value: E): Err<E> {
-    return new Err(value);
+export function err<T, E = Error>(value: E): Result<T, E> {
+    return new Result<T, E>(new Err(value));
 }
