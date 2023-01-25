@@ -1,9 +1,9 @@
 import { none, optional, Optional, some } from "../optional";
 
-import path, { resolve } from "path-browserify";
+import path from "path-browserify";
 import { Builder } from ".";
 import { err, ok, Result } from "../result";
-import { Ini, Toml } from "../config";
+import { StandardIni, CommonToml, implCommonToml, commonTomlEveryKey } from "../config";
 
 export interface FileLike {
     filename: string;
@@ -22,6 +22,7 @@ export enum ClassicSourceFileType {
     TOML,
     TXT,
     PNG,
+    JPEG,
     OGG,
     WAV,
     MP3,
@@ -30,14 +31,14 @@ export enum ClassicSourceFileType {
 
 export class ClassicSourceFile {
     private type: ClassicSourceFileType;
-    private content: Toml | string | PathLike;
+    private content: CommonToml | string | PathLike;
 
-    private constructor(type: ClassicSourceFileType, content: Toml | string | PathLike) {
+    private constructor(type: ClassicSourceFileType, content: CommonToml | string | PathLike) {
         this.type = type;
         this.content = content;
     }
 
-    static toml(content: Toml): ClassicSourceFile {
+    static toml(content: CommonToml): ClassicSourceFile {
         return new ClassicSourceFile(ClassicSourceFileType.TOML, content);
     }
 
@@ -49,6 +50,8 @@ export class ClassicSourceFile {
         return new ClassicSourceFile((() => {
             if(path.extname(content.path) == '.png') {
                 return ClassicSourceFileType.PNG;
+            } else if(path.extname(content.path) == '.jpg' || path.extname(content.path) == '.jpeg') {
+                return ClassicSourceFileType.JPEG;
             } else if(path.extname(content.path) == '.ogg') {
                 return ClassicSourceFileType.OGG;
             } else if(path.extname(content.path) == '.mp3') {
@@ -61,7 +64,7 @@ export class ClassicSourceFile {
         })(), content);
     }
 
-    isToml(): boolean {
+    isCommonToml(): boolean {
         return this.type == ClassicSourceFileType.TOML;
     }
 
@@ -69,11 +72,38 @@ export class ClassicSourceFile {
         return this.type == ClassicSourceFileType.TXT;
     }
 
+    isImage(): boolean {
+        return this.type == ClassicSourceFileType.PNG;
+    }
 
-    toml(callback: (content: Toml) => void) {
-        if(this.isToml() && this.content instanceof Toml) {
-            callback(this.content);
+    isSoundOrMusic(): boolean {
+        return this.type == ClassicSourceFileType.OGG || this.type == ClassicSourceFileType.MP3 || this.type == ClassicSourceFileType.WAV;
+    }
+
+    isUnknownAsset(): boolean {
+        return this.type == ClassicSourceFileType.UNKNOWN_ASSET;
+    }
+
+    toml(callback: (content: CommonToml) => void): ClassicSourceFile {
+        if(this.isCommonToml()) {
+            if(implCommonToml(this.content)) {
+                callback(this.content);
+            } else {
+                throw new Error('internal error');
+            }
         }
+        return this;
+    }
+
+    txt(callback: (content: string) => void): ClassicSourceFile {
+        if(this.isTxt()) {
+            if(typeof this.content == 'string') {
+                callback(this.content);
+            } else {
+                throw new Error('internal error');
+            }
+        }
+        return this;
     }
 }
 
@@ -84,7 +114,7 @@ export class ClassicSource implements FileLike {
     sourceFile: ClassicSourceFile;
     target: Optional<ClassicTarget>;
 
-    private constructor(filename: string, dirname: string, path: string, content: Toml | string | PathLike) {
+    private constructor(filename: string, dirname: string, path: string, content: CommonToml | string | PathLike) {
         this.filename = filename;
         this.dirname = dirname;
         this.path = path;
@@ -98,7 +128,7 @@ export class ClassicSource implements FileLike {
         }
     }
 
-    static toml(filename: string, dirname: string, path: string, content: Toml): ClassicSource {
+    static toml(filename: string, dirname: string, path: string, content: CommonToml): ClassicSource {
         return new ClassicSource(filename, dirname, path, content);
     }
 
@@ -110,8 +140,8 @@ export class ClassicSource implements FileLike {
         return new ClassicSource(filename, dirname, path, content);
     }
 
-    isToml(): boolean {
-        return this.sourceFile.isToml();
+    isCommonToml(): boolean {
+        return this.sourceFile.isCommonToml();
     }
 
     isBuilt(): boolean {
@@ -130,23 +160,23 @@ export class ClassicSource implements FileLike {
 }
 
 export enum ClassicTargetFileType {
-    INI,
-    TXT,
-    ASSET
+    INI = 'INI',
+    TXT = 'TXT',
+    ASSET = 'ASSET'
 }
 
 export class CopyFromSource {}
 
 export class ClassicTargetFile {
     type: ClassicTargetFileType;
-    content: Ini | string | CopyFromSource;
+    content: StandardIni | string | CopyFromSource;
 
-    private constructor(type: ClassicTargetFileType, content: Ini | string | CopyFromSource) {
+    private constructor(type: ClassicTargetFileType, content: StandardIni | string | CopyFromSource) {
         this.type = type;
         this.content = content;
     }
 
-    static ini(content: Ini) {
+    static ini(content: StandardIni) {
         return new ClassicTargetFile(ClassicTargetFileType.INI, content);
     }
 
@@ -172,7 +202,7 @@ export class ClassicTarget implements FileLike {
         this.targetFile = targetFile;
     }
 
-    isIni(): boolean {
+    isStandardIni(): boolean {
         return path.extname(this.filename) == '.ini';
     }
 }
@@ -212,43 +242,97 @@ export class ClassicBuilderSync implements Builder<ClassicSource, ClassicTarget>
         });
     }
 
-    requireSync(path: string): Result<{ source: ClassicSource; target: ClassicTarget; }, Error> {
-        let {source, target} = {source: none<ClassicSource>(), target: none<ClassicTarget>()};
-        let error = none<Error>();
-        optional(this.context.sources.find((value) => value.path == path)).some((value) => {
-            source = some(value);
-            value.built((value) => target = some(value)).unbuilt(() => {
-                this.buildSync(path).ok((result) => target = some(result)).err((result) => error = some(result));
+    requireSync(path: string, starterPath?: string): Result<{source: ClassicSource;target: ClassicTarget;}, Error> {
+        try {
+            optional(starterPath).some((starterPath) => {
+                if(starterPath == path) {
+                    throw err<ClassicTarget, Error>(new Error(`circle require ${starterPath} by ${path}`));
+                }
             });
-        }).none(() => error = some(new Error('requirement does not exists')));
-        if(error.isSome()) {
-            return err(error.unwrap());
-        } else {
-            return ok({source: source.unwrap(), target: target.unwrap()});
+            optional(this.context.sources.find((value) => value.path == path)).some((source) => {
+                source.built((target) => {throw ok({source, target})}).unbuilt(() => {
+                    this.buildSync(path).ok((target) => {throw ok({source, target})}).err((error) => {throw err<{source: ClassicSource;target: ClassicTarget;}, Error>(error)});
+                });
+            }).none(() => {throw err(new Error('requirement does not exists'))});
+            throw new Error('unreachable!');
+        } catch(result) {
+            if(result instanceof Result<{source: ClassicSource;target: ClassicTarget;}, Error>) {
+                return result;
+            } else {
+                throw result;
+            }
         }
     }
-    buildSync(path: string): Result<ClassicTarget, Error> {
-        let target = none<ClassicTarget>();
-        let error = none<Error>();
-        optional(this.context.sources.find((value) => value.path == path)).some((source) => {
-            source.built((value) => target = some(value)).unbuilt(() => {
-            });
-        }).none(() => error = some(new Error('source does not exists')));
-        if(error.isSome()) {
-            return err(error.unwrap());
-        } else {
-            return ok(target.unwrap());
+    buildSync(path: string, starterPath?: string): Result<ClassicTarget, Error> {
+        try {
+            optional(this.context.sources.find((value) => value.path == path)).some((source) => {
+                source.sourceFile.toml((toml) => {
+                    let ini: StandardIni = {};
+                    const gen = commonTomlEveryKey(toml);
+                    while(true) {
+                        const { value, done } = gen.next();
+                        if(!done) {
+                            value.some(({secMain, secSub, key, value}) => {
+                                secSub.some((secSub) => {
+                                    optional(ini[`${secMain}_${secSub}`]).none(() => {
+                                        ini[`${secMain}_${secSub}`] = {};
+                                    });
+                                    optional(ini[`${secMain}_${secSub}`]).some((section) => {
+                                        section[key] = (() => {
+                                            if(Array.isArray(value)) {
+                                                return value.join();
+                                            } else {
+                                                return value.toString();
+                                            }
+                                        })();
+                                    });
+                                }).none(() => {
+                                    optional(ini[secMain]).none(() => {
+                                        ini[secMain] = {};
+                                    });
+                                    optional(ini[secMain]).some((section) => {
+                                        section[key] = (() => {
+                                            if(Array.isArray(value)) {
+                                                return value.join();
+                                            } else {
+                                                return value.toString();
+                                            }
+                                        })();
+                                    });
+                                });
+                            });
+                        } else {
+                            break;
+                        }
+                    }
+                    const target = new ClassicTarget(source.filename.replace('.toml', '.ini'), source.dirname, source, ClassicTargetFile.ini(ini));
+                    source.target = some(target);
+                    throw ok(target);
+                });
+            }).none(() => {throw err<ClassicTarget, Error>(new Error('source does not exists'))});
+            throw new Error('unreachable!');
+        } catch(result) {
+            if(result instanceof Result<ClassicTarget, Error>) {
+                return result;
+            } else {
+                throw result;
+            }
         }
     }
     buildAllSync(): Result<ClassicTarget[], Error> {
         let error = none<Error>();
-        for(const source of this.context.sources) {
-            const result = this.buildSync(source.path).err((result) => error = some(result));
-            if(result.isErr()) {
-                return err(error.unwrap());
+        try {
+            for(const source of this.context.sources) {
+                const result = this.buildSync(source.path).err((error) => {throw err<ClassicTarget[], Error>(error)});
+            }
+            throw ok(this.context.targets);
+        } catch(result) {
+            if(result instanceof Result<ClassicTarget[], Error>) {
+                return result;
+            } else {
+                throw result;
             }
         }
-        return ok(this.context.targets);
     }
     
 }

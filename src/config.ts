@@ -1,180 +1,207 @@
-import { none, some } from "./optional";
-import { err, ok, Result } from "./result";
+import { none, Optional, some } from "./optional";
 
-export class Ini {
+export interface StandardIni {
     [key: string]: {
         [key: string]: string
     };
+}
 
-    constructor(obj: Object) {
-        for(let k1 in obj) {
-            this[k1] = {};
-            if(typeof obj[k1] == 'object') {
-                for(let k2 in (obj[k1] as Object)) {
-                    if(typeof (obj[k1] as Object)[k2] == 'string') {
-                        this[k1][k2] = (obj[k1] as Object)[k2];
-                    } else {
-                        throw new Error(`not string value in key:${k2}`);
+export function implStandardIni(obj: any): obj is StandardIni {
+    if(typeof obj == 'object') {
+        const objx = obj as object;
+        for(const sec in objx) {
+            if(typeof objx[sec] != 'object') {
+                return false;
+            } else {
+                const secObj = objx[sec] as object;
+                for(const key in secObj) {
+                    if(typeof secObj[key] != 'string') {
+                        return false;
                     }
                 }
-            } else {
-                throw new Error(`not section value in section name:${k1}`);
             }
         }
-    }
-
-    static from(obj: Object): Result<Ini> {
-        try {
-            return ok(new Ini(obj));
-        } catch(e) {
-            if(e instanceof Error) {
-                return err<Ini>(e);
-            } else {
-                throw new Error('not a Error');
-            }
-        }
+        return true;
+    } else {
+        return false;
     }
 }
 
-export class Toml {
+export interface ClassicToml {
+    [key: string]: {
+        [key: string]: string
+    }
+}
+
+export function implClassicToml(obj: any): obj is ClassicToml {
+    if(typeof obj == 'object' && !Array.isArray(obj)) {
+        const objx = obj as object;
+        for(const sec in objx) {
+            if(typeof objx[sec] != 'object' || Array.isArray(objx[sec])) {
+                return false
+            } else {
+                const section = objx[sec] as object;
+                for(const key in section) {
+                    if(typeof section[key] != 'string') {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    } else {
+        return false;
+    }
+}
+
+export interface CommonToml {
     [key: string]: {
         [key: string]: number | string | boolean | string[] | number[] | boolean[];
     } | {
         [key: string]: {
             [key: string]: number | string | boolean | string[] | number[] | boolean[];
         }
-    };
+    }
+}
 
-    constructor(obj: Object) {
-        for(let k1 in obj) {
-            this[k1] = {};
-            if(typeof obj[k1] == 'object') {
-                let single = none<boolean>();
-                for(let k2 in (obj[k1] as Object)) {
-                    single.none(() => {
-                        if(typeof (obj[k1] as Object)[k2] == 'object') {
-                            single = some(false);
-                            this[k1][k2] = {};
-                        } else {
-                            single = some(true);
-                        }
-                    });
-                    single.some((single) => {
-                        if(single) {
-                            if(typeof (obj[k1] as Object)[k2] == 'number') {
-                                this[k1][k2] = (obj[k1] as Object)[k2] as 'number';
-                            } else if(typeof (obj[k1] as Object)[k2] == 'string') {
-                                this[k1][k2] = (obj[k1] as Object)[k2] as 'string';
-                            } else if(typeof (obj[k1] as Object)[k2] == 'boolean') {
-                                this[k1][k2] = (obj[k1] as Object)[k2] as 'boolean';
-                            } else if(Array.isArray((obj[k1] as Object)[k2])) {
-                                this[k1][k2] = [];
-                                let typing = none<'number' | 'boolean' | 'string'>();
-                                for(let n of (obj[k1] as Object)[k2] as Array<any>) {
-                                    typing.none(() => {
-                                        switch(typeof n) {
-                                            case 'number':
-                                                typing = some('number');
-                                                break;
-                                            case 'boolean':
-                                                typing = some('boolean');
-                                                break;
+type ValueOf<T> = T[keyof T];
+
+export function arrayType(arr: Array<any>): Optional<'string' | 'number' | 'boolean'> {
+    let type = none<'string' | 'number' | 'boolean'>();
+    for(const v of arr) {
+        type.none(() => {
+            switch(typeof v) {
+                case 'number':
+                    type = some('number');
+                    break;
+                case 'string':
+                    type = some('string');
+                    break;
+                case 'boolean':
+                    type = some('boolean');
+                    break;
+            }
+        });
+        if(type.isNone()) {
+            return none();
+        }
+        try {
+            type.some((type) => {
+                if(type != typeof v) {
+                    throw none<'string' | 'number' | 'boolean'>();
+                }
+            });
+        } catch(none) {
+            if(none instanceof Optional<'string' | 'number' | 'boolean'>) {
+                return none;
+            } else {
+                throw none;
+            }
+        }
+    }
+    return type;
+}
+
+export function implCommonToml(obj: any): obj is CommonToml {
+    if(typeof obj == 'object') {
+        const objx = obj as object;
+        for(const secOrSecs in objx) {
+            if(typeof objx[secOrSecs] != 'object') {
+                return false;
+            } else {
+                const secOrSecsObj = objx[secOrSecs] as object;
+                let isObject = none<boolean>();
+                for(const keyOrSec in secOrSecsObj) {
+                    try {
+                        isObject.none(() => {
+                            if(Array.isArray(secOrSecsObj[keyOrSec])) {
+                                isObject = some(false);
+                                arrayType(secOrSecsObj[keyOrSec]).none(() => {throw false});
+                            } else if(typeof secOrSecsObj[keyOrSec] == 'object') {
+                                isObject = some(true);
+                            } else {
+                                isObject = some(false);
+                            }
+                        });
+                        isObject.some((flag) => {
+                            if(flag) {
+                                if(typeof secOrSecsObj[keyOrSec] != 'object') {
+                                    throw false;
+                                }
+                                const secObj = secOrSecsObj[keyOrSec] as object;
+                                for(const key in secObj) {
+                                    const value = secObj[key];
+                                    if(Array.isArray(value)) {
+                                        arrayType(value).none(() => {throw false});
+                                    } else if(typeof value == 'object') {
+                                        throw false;
+                                    } else {
+                                        switch(typeof value) {
                                             case 'string':
-                                                typing = some('string');
+                                            case 'number':
+                                            case 'boolean':
                                                 break;
                                             default:
-                                                throw new Error(`not allowed type in array: ${typeof n}`);
+                                                throw false;
                                         }
-                                    });
-                                    typing.some((typing) => {
-                                        switch(typing) {
-                                            case 'number':
-                                                (this[k1][k2] as Array<number>).push(n);
-                                                break;
-                                            case 'string':
-                                                (this[k1][k2] as Array<string>).push(n);
-                                                break;
-                                            case 'boolean':
-                                                (this[k1][k2] as Array<boolean>).push(n);
-                                                break;
-                                            default:
-                                                throw new Error(`not allowed type in array: ${typeof n}`);
-                                        }
-                                    });
+                                    }
                                 }
                             } else {
-                                throw new Error(`not allowed object in single-section`);
-                            }
-                        } else if(typeof (obj[k1] as Object)[k2] == 'object') {
-                            for(let k3 in ((obj[k1] as Object)[k2] as Object)) {
-                                if(typeof ((obj[k1] as Object)[k2] as Object)[k3] == 'object') {
-                                    if(Array.isArray(((obj[k1] as Object)[k2] as Object)[k3])) {
-                                        this[k1][k2][k3] = [];
-                                        let typing = none<'number' | 'boolean' | 'string'>();
-                                        for(let n of ((obj[k1] as Object)[k2] as Object)[k3] as Array<any>) {
-                                            typing.none(() => {
-                                                switch(typeof n) {
-                                                    case 'number':
-                                                        typing = some('number');
-                                                        break;
-                                                    case 'boolean':
-                                                        typing = some('boolean');
-                                                        break;
-                                                    case 'string':
-                                                        typing = some('string');
-                                                        break;
-                                                    default:
-                                                        throw new Error(`not allowed type in array: ${typeof n}`);
-                                                }
-                                            });
-                                            typing.some((typing) => {
-                                                if(typing != typeof n) {
-                                                    throw new Error(`not allowed type in ${typing} array: ${typeof n}`);
-                                                }
-                                                switch(typing) {
-                                                    case 'number':
-                                                        (this[k1][k2][k3] as Array<number>).push(n);
-                                                        break;
-                                                    case 'string':
-                                                        (this[k1][k2][k3] as Array<string>).push(n);
-                                                        break;
-                                                    case 'boolean':
-                                                        (this[k1][k2][k3] as Array<boolean>).push(n);
-                                                        break;
-                                                    default:
-                                                        throw new Error(`not allowed type in array: ${typeof n}`);
-                                                }
-                                            });
-                                        }
+                                const secObj = secOrSecsObj;
+                                for(const key in secObj) {
+                                    const value = secObj[key];
+                                    if(Array.isArray(value)) {
+                                        arrayType(value).none(() => {throw false});
+                                    } else if(typeof value == 'object') {
+                                        throw false;
                                     } else {
-                                        throw new Error(`not allowed type in multi-section: ${typeof ((obj[k1] as Object)[k2] as Object)[k3]}`);
+                                        switch(typeof value) {
+                                            case 'string':
+                                            case 'number':
+                                            case 'boolean':
+                                                break;
+                                            default:
+                                                throw false;
+                                        }
                                     }
-                                } else if(typeof ((obj[k1] as Object)[k2] as Object)[k3] == 'number') {
-                                    this[k1][k2][k3] = ((obj[k1] as Object)[k2] as Object)[k3] as 'number';
-                                } else if(((obj[k1] as Object)[k2] as Object)[k3] == 'string') {
-                                    this[k1][k2][k3] = ((obj[k1] as Object)[k2] as Object)[k3] as 'string';
-                                } else if(((obj[k1] as Object)[k2] as Object)[k3] == 'boolean') {
-                                    this[k1][k2][k3] = ((obj[k1] as Object)[k2] as Object)[k3] as 'boolean';
                                 }
                             }
+                        });
+                    } catch (result) {
+                        if(typeof result == 'boolean') {
+                            return result;
                         } else {
-                            throw new Error(`not allowed primitive type in multi-sections: ${typeof (obj[k1] as Object)[k2]}`);
+                            throw result;
                         }
-                    });
+                    }
+                }
+            }
+        }
+        return true;
+    } else {
+        return false;
+    }
+}
+
+export function* commonTomlEveryKey(toml: CommonToml) {
+    if(Object.keys(toml).length == 0) {
+        return none<{secMain: string, secSub: Optional<string>, key: string, value: string | number | boolean | string[] | number[] | boolean[]}>();
+    } else {
+        for(const secOrSecs in toml) {
+            for(const keyOrSec in toml[secOrSecs]) {
+                if(typeof toml[secOrSecs][keyOrSec] == 'object' && !Array.isArray(toml[secOrSecs][keyOrSec])) {
+                    const sec = toml[secOrSecs][keyOrSec] as {
+                        [key: string]: string | number | boolean | string[] | number[] | boolean[];
+                    };
+                    for(const key in sec) {
+                        yield some({secMain: secOrSecs, secSub: some(keyOrSec), key: key, value: sec[key]});
+                    }
+                } else {
+                    const value = toml[secOrSecs][keyOrSec] as string | number | boolean | string[] | number[] | boolean[];
+                    yield some({secMain: secOrSecs, secSub: none<string>(), key: keyOrSec, value: value});
                 }
             }
         }
     }
-
-    static from(obj: Object): Result<Toml> {
-        try {
-            return ok(new Toml(obj));
-        } catch(e) {
-            if(e instanceof Error) {
-                return err<Toml>(e);
-            } else {
-                throw new Error('not a Error');
-            }
-        }
-    }
+    return none<{secMain: string, secSub: Optional<string>, key: string, value: string | number | boolean | string[] | number[] | boolean[]}>();
 }

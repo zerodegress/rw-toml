@@ -1,7 +1,7 @@
 import { Optional } from "../optional";
 import { Builder } from ".";
 import { Result } from "../result";
-import { Ini, Toml } from "../config";
+import { StandardIni, CommonToml } from "../config";
 export interface FileLike {
     filename: string;
     dirname: string;
@@ -14,21 +14,26 @@ export declare enum ClassicSourceFileType {
     TOML = 0,
     TXT = 1,
     PNG = 2,
-    OGG = 3,
-    WAV = 4,
-    MP3 = 5,
-    UNKNOWN_ASSET = 6
+    JPEG = 3,
+    OGG = 4,
+    WAV = 5,
+    MP3 = 6,
+    UNKNOWN_ASSET = 7
 }
 export declare class ClassicSourceFile {
     private type;
     private content;
     private constructor();
-    static toml(content: Toml): ClassicSourceFile;
+    static toml(content: CommonToml): ClassicSourceFile;
     static txt(content: string): ClassicSourceFile;
     static asset(content: PathLike): ClassicSourceFile;
-    isToml(): boolean;
+    isCommonToml(): boolean;
     isTxt(): boolean;
-    toml(callback: (content: Toml) => void): void;
+    isImage(): boolean;
+    isSoundOrMusic(): boolean;
+    isUnknownAsset(): boolean;
+    toml(callback: (content: CommonToml) => void): ClassicSourceFile;
+    txt(callback: (content: string) => void): ClassicSourceFile;
 }
 export declare class ClassicSource implements FileLike {
     filename: string;
@@ -37,26 +42,26 @@ export declare class ClassicSource implements FileLike {
     sourceFile: ClassicSourceFile;
     target: Optional<ClassicTarget>;
     private constructor();
-    static toml(filename: string, dirname: string, path: string, content: Toml): ClassicSource;
+    static toml(filename: string, dirname: string, path: string, content: CommonToml): ClassicSource;
     static txt(filename: string, dirname: string, path: string, content: string): ClassicSource;
     static pathLike(filename: string, dirname: string, path: string, content: PathLike): ClassicSource;
-    isToml(): boolean;
+    isCommonToml(): boolean;
     isBuilt(): boolean;
     built(callback: (target: ClassicTarget) => void): ClassicSource;
     unbuilt(callback: () => void): ClassicSource;
 }
 export declare enum ClassicTargetFileType {
-    INI = 0,
-    TXT = 1,
-    ASSET = 2
+    INI = "INI",
+    TXT = "TXT",
+    ASSET = "ASSET"
 }
 export declare class CopyFromSource {
 }
 export declare class ClassicTargetFile {
     type: ClassicTargetFileType;
-    content: Ini | string | CopyFromSource;
+    content: StandardIni | string | CopyFromSource;
     private constructor();
-    static ini(content: Ini): ClassicTargetFile;
+    static ini(content: StandardIni): ClassicTargetFile;
     static txt(content: string): ClassicTargetFile;
     static asset(): ClassicTargetFile;
 }
@@ -66,7 +71,7 @@ export declare class ClassicTarget implements FileLike {
     source: ClassicSource;
     targetFile: ClassicTargetFile;
     constructor(filename: string, dirname: string, source: ClassicSource, targetFile: ClassicTargetFile);
-    isIni(): boolean;
+    isStandardIni(): boolean;
 }
 export declare class ClassicBuilderSync implements Builder<ClassicSource, ClassicTarget> {
     context: {
@@ -83,10 +88,10 @@ export declare class ClassicBuilderSync implements Builder<ClassicSource, Classi
     }>;
     build(path: string): Promise<ClassicTarget>;
     buildAll(): Promise<ClassicTarget[]>;
-    requireSync(path: string): Result<{
+    requireSync(path: string, starterPath?: string): Result<{
         source: ClassicSource;
         target: ClassicTarget;
     }, Error>;
-    buildSync(path: string): Result<ClassicTarget, Error>;
+    buildSync(path: string, starterPath?: string): Result<ClassicTarget, Error>;
     buildAllSync(): Result<ClassicTarget[], Error>;
 }

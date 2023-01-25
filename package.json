@@ -4,7 +4,7 @@
   "description": "",
   "main": "lib/index.js",
   "scripts": {
-    "build": "tsc --build",
+    "build": "tsc --build --clean | tsc --build",
     "clean": "tsc --build --clean",
     "test": "mocha --require ts-node/register test/**/*.ts"
   },
