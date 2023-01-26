@@ -2,6 +2,7 @@ import { Optional } from "../optional";
 import { Builder } from ".";
 import { Result } from "../result";
 import { StandardIni, CommonToml } from "../config";
+export declare function normalize(pat: string): string;
 export interface FileLike {
     filename: string;
     dirname: string;
@@ -11,14 +12,14 @@ export declare class PathLike {
     constructor(path: string);
 }
 export declare enum ClassicSourceFileType {
-    TOML = 0,
-    TXT = 1,
-    PNG = 2,
-    JPEG = 3,
-    OGG = 4,
-    WAV = 5,
-    MP3 = 6,
-    UNKNOWN_ASSET = 7
+    TOML = "TOML",
+    TXT = "TXT",
+    PNG = "PNG",
+    JPEG = "JPEG",
+    OGG = "OGG",
+    WAV = "WAV",
+    MP3 = "MP3",
+    UNKNOWN_ASSET = "UNKNOWN_ASSET"
 }
 export declare class ClassicSourceFile {
     private type;
@@ -34,6 +35,9 @@ export declare class ClassicSourceFile {
     isUnknownAsset(): boolean;
     toml(callback: (content: CommonToml) => void): ClassicSourceFile;
     txt(callback: (content: string) => void): ClassicSourceFile;
+    image(callback: (content: PathLike) => void): ClassicSourceFile;
+    soundOrMusic(callback: (content: PathLike) => void): ClassicSourceFile;
+    unknownAsset(callback: (content: PathLike) => void): ClassicSourceFile;
 }
 export declare class ClassicSource implements FileLike {
     filename: string;
