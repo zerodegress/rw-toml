@@ -3,7 +3,7 @@ import { expect } from "chai";
 import { describe, it } from "mocha";
 import toml from "toml";
 
-import { implCommonToml, ClassicBuilderSync, ClassicSource, ClassicTargetFileType, implStandardIni } from "../src";
+import { implCommonToml, ClassicBuilderSync, ClassicSource, ClassicTargetFileType, implStandardIni, ClassicPostTranslator, CommonToml, commonTomlEveryKey, none, some } from "../src";
 
 import fs from 'fs';
 import path from 'path';
@@ -84,5 +84,57 @@ describe('ClassicBuilderSync', () => {
         const builder = new ClassicBuilderSync('.', 'src', 'dist', [ClassicSource.toml('abc.toml', 'abc', 'abc/abc.toml', { 'core': { 'name': 'az', 'copyFrom': '/requires/require.toml', 'defineUnitMemory': ['string az', 'string ok'] }, 'projectile': {'1': {'x': 0}}}), ClassicSource.toml('require.toml', 'requires', 'requires/require.toml', { 'core': { 'displayName': 'require' }})]);
         expect(builder.buildSync('abc/abc.toml').isOk()).to.equal(true);
         expect(builder.context.targets.find((target) => target.source.path == 'requires/require.toml') != undefined).to.equal(true);
+    });
+});
+
+describe('ClassicPostTranslator', () => {
+    it('translates sources', () => {
+        const trans = new ClassicPostTranslator('.', 'src', 'dist', [
+            ClassicSource.toml('abc.toml', 'abc', 'abc/abc/toml', {
+                'core': {
+                    'name': 'abc',
+                    'meme': 'def'
+                }
+            })
+        ], [
+            (source) => {
+                let src = none<ClassicSource>();
+                source.sourceFile.toml((toml) => {
+                    src = some(ClassicSource.toml(source.filename, source.dirname, source.path, (() => {
+                        let obj: CommonToml = {};
+                        const gen = commonTomlEveryKey(toml);
+                        while(true) {
+                            const {value: v, done} = gen.next();
+                            if(!done) {
+                                v.some(({secMain, secSub, key, value}) => {
+                                    secSub.some((secSub) => {
+                                        if(!obj[secMain]) {
+                                            obj[secMain] = {};
+                                        }
+                                        if(!obj[secMain][secSub]) {
+                                            obj[secMain][secSub] = {};
+                                        }
+                                        obj[secMain][secSub][key] = `POST${value}`;
+                                    }).none(() => {
+                                        if(!obj[secMain]) {
+                                            obj[secMain] = {};
+                                        }
+                                        obj[secMain][key] = `POST${value}`;
+                                    });
+                                });
+                            } else {
+                                break;
+                            }
+                        }
+                        return obj;
+                    })()));
+                });
+                return src.unwrap();
+            }
+        ]);
+        const result = trans.buildAll();
+        expect(result.isOk()).to.equal(true);
+        result.unwrap()[0].sourceFile.toml((toml) => expect(toml['core']['name'].toString().startsWith('POST')).to.equal(true));
+        result.unwrap()[0].sourceFile.toml((toml) => expect(toml['core']['meme'].toString().startsWith('POST')).to.equal(true));
     });
 });

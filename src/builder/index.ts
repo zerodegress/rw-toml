@@ -1,21 +1,25 @@
 import { Result } from "../result";
 
+export interface BuilderContext<S, T> {
+    sources: S[],
+    targets: T[]
+}
+
 export interface Builder<S, T> {
-    context: { 
-        rootDir: string,
-        srcDir: string,
-        distDir: string,
-        sources: S[], 
-        targets: T[],
-    };
+    context: BuilderContext<S, T>;
+    require(path: string, starter?: string): Result<{source: S,target: T}>;
+    build(path: string, started?: string): Result<T>;
+    buildAll(): Result<T[]>;
+}
 
-    require(path: string): Promise<{source: S,target: T}>;
-    build(path: string): Promise<T>;
-    buildAll(): Promise<T[]>;
+export interface PathBuilderContext<S, T> extends BuilderContext<S, T> {
+    rootDir: string,
+    srcDir: string,
+    distDir: string,
+}
 
-    requireSync(path: string): Result<{source: S,target: T}>;
-    buildSync(path: string): Result<T>;
-    buildAllSync(): Result<T[]>;
+export interface PathBuilder<S, T> extends Builder<S, T> {
+    context: PathBuilderContext<S, T>;
 }
 
 export * from './classic';

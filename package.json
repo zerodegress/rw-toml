@@ -8,6 +8,10 @@
     "clean": "tsc --build --clean",
     "test": "mocha --require ts-node/register test/**/*.ts"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zerodegress/rw-toml.git"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",

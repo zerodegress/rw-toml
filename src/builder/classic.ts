@@ -2,9 +2,10 @@ import { none, optional, Optional, some } from "../optional";
 
 import pathb from "path-browserify";
 import normalizePath from "normalize-path";
-import { Builder } from ".";
+import { Builder, BuilderContext, PathBuilder, PathBuilderContext } from ".";
 import { err, ok, Result } from "../result";
 import { StandardIni, CommonToml, implCommonToml, commonTomlEveryKey } from "../config";
+import { Filter, Transform } from "../function";
 
 export function normalize(pat: string): string {
     return normalizePath(pathb.normalize(pat));
@@ -251,7 +252,7 @@ export class ClassicTarget implements FileLike {
     }
 }
 
-export class ClassicBuilderSync implements Builder<ClassicSource, ClassicTarget> {
+export class ClassicBuilderSync implements PathBuilder<ClassicSource, ClassicTarget> {
     context: {
         rootDir: string;
         srcDir: string;
@@ -270,32 +271,14 @@ export class ClassicBuilderSync implements Builder<ClassicSource, ClassicTarget>
         }
     }
 
-    require(path: string): Promise<{ source: ClassicSource; target: ClassicTarget; }> {
-        return new Promise<{ source: ClassicSource; target: ClassicTarget; }>((resolve, reject) => {
-            this.requireSync(path).ok((value) => resolve(value)).err((value) => reject(value));
-        });
-    }
-    build(path: string): Promise<ClassicTarget> {
-        return new Promise<ClassicTarget>((resolve, reject) => {
-            this.buildSync(path).ok((value) => resolve(value)).err((value) => reject(value));
-        });
-    }
-    buildAll(): Promise<ClassicTarget[]> {
-        return new Promise<ClassicTarget[]>((resolve, reject) => {
-            this.buildAllSync().ok((value) => resolve(value)).err((value) => reject(value));
-        });
-    }
-
-    requireSync(path: string, starterPath?: string): Result<{source: ClassicSource;target: ClassicTarget;}, Error> {
+    require(path: string, starterPath?: string): Result<{source: ClassicSource;target: ClassicTarget;}, Error> {
         try {
-            optional(starterPath).some((starterPath) => {
-                if(starterPath == path) {
-                    throw err<ClassicTarget, Error>(new Error(`circle require ${starterPath} by ${path}`));
-                }
-            });
+            if(starterPath == path) {
+                throw err<ClassicTarget, Error>(new Error(`circle require ${starterPath} by ${path}`));
+            }
             optional(this.context.sources.find((value) => value.path == path)).some((source) => {
                 source.built((target) => {throw ok({source, target})}).unbuilt(() => {
-                    this.buildSync(path, starterPath).ok((target) => {throw ok({source, target})}).err((error) => {throw err<{source: ClassicSource;target: ClassicTarget;}, Error>(error)});
+                    this.build(path, starterPath).ok((target) => {throw ok({source, target})}).err((error) => {throw err<{source: ClassicSource;target: ClassicTarget;}, Error>(error)});
                 });
             }).none(() => {throw err(new Error(`requirement "${path}" does not exists`))});
             throw new Error('unreachable!');
@@ -307,7 +290,7 @@ export class ClassicBuilderSync implements Builder<ClassicSource, ClassicTarget>
             }
         }
     }
-    buildSync(path: string, starterPath?: string): Result<ClassicTarget, Error> {
+    build(path: string, starterPath?: string): Result<ClassicTarget, Error> {
         try {
             optional(this.context.sources.find((value) => value.path == path)).some((source) => {
                 source.sourceFile.toml((toml) => {
@@ -349,7 +332,7 @@ export class ClassicBuilderSync implements Builder<ClassicSource, ClassicTarget>
                                                         requirePath = normalize(pathb.join(source.dirname, requirePath));
                                                         outputValue = requirePath;
                                                     }
-                                                    this.requireSync(requirePath, starterPath != undefined ? starterPath : source.path).err((error) => {throw err(error)});
+                                                    this.require(requirePath, starterPath != undefined ? starterPath : source.path).err((error) => {throw err(error)});
                                                 }
                                                 return outputValue.replace(/\.toml$/, '.ini');
                                             }
@@ -393,11 +376,10 @@ export class ClassicBuilderSync implements Builder<ClassicSource, ClassicTarget>
             }
         }
     }
-    buildAllSync(): Result<ClassicTarget[], Error> {
-        let error = none<Error>();
+    buildAll(): Result<ClassicTarget[], Error> {
         try {
             for(const source of this.context.sources) {
-                const result = this.buildSync(source.path).err((error) => {throw err<ClassicTarget[], Error>(error)});
+                const result = this.build(source.path).err((error) => {throw err<ClassicTarget[], Error>(error)});
             }
             throw ok(this.context.targets);
         } catch(result) {
@@ -408,5 +390,102 @@ export class ClassicBuilderSync implements Builder<ClassicSource, ClassicTarget>
             }
         }
     }
-    
+
+    requireSync(path: string, starterPath?: string): Result<{source: ClassicSource;target: ClassicTarget;}, Error> {
+        return this.require(path, starterPath);
+    }
+    buildSync(path: string, starterPath?: string): Result<ClassicTarget, Error> {
+        return this.build(path, starterPath);
+    }
+    buildAllSync(): Result<ClassicTarget[], Error> {
+        return this.buildAll();
+    }
+}
+
+export interface ClassicPostBuilder<P, T extends Transform<P> = (x: P) => P, M  = (x: P) => ClassicSource> extends PathBuilder<P, ClassicSource> {
+    rules: Iterable<T>;
+    complete: M;
+}
+
+export class ClassicPostTranslator implements PathBuilder<[ClassicSource, Optional<ClassicSource>], ClassicSource> {
+    rules: Array<Transform<ClassicSource>>;
+    complete: (x: ClassicSource) => ClassicSource;
+    context: PathBuilderContext<[ClassicSource, Optional<ClassicSource>], ClassicSource>;
+
+    constructor(rootDir: string, srcDir: string, distDir: string, sources: ClassicSource[], rules: Transform<ClassicSource>[]) {
+        this.context = {
+            rootDir: rootDir,
+            srcDir: srcDir,
+            distDir: distDir,
+            sources: sources.map((x) => [x, none()]),
+            targets: []
+        }
+        this.rules = rules;
+        this.complete = (x) => x;
+    }
+
+    require(path: string, starterPath?: string): Result<{ source: [ClassicSource, Optional<ClassicSource>]; target: ClassicSource; }, Error> {
+        try {
+            if(starterPath == path) {
+                throw err<{ source: [ClassicSource, Optional<ClassicSource>]; target: ClassicSource; }, Error>(new Error(`circle require ${starterPath} by ${path}`));
+            }
+            optional(this.context.sources.find(([x, _]) => x.path == path)).some(([x, build]) => {
+                build.some((build) => {throw ok(build)}).none(() => {
+                    this.build(path, starterPath).ok((build) => {throw ok(build)}).err((error) => {
+                        throw err<{ source: [ClassicSource, Optional<ClassicSource>]; target: ClassicSource; }, Error>(error);
+                    });
+                });
+            }).none(() => {throw err(new Error(`requirement "${path}" does not exists`))});
+            throw new Error('unreachable!');
+        } catch(result) {
+            if(result instanceof Result<{ source: [ClassicSource, Optional<ClassicSource>]; target: ClassicSource; }, Error>) {
+                return result;
+            } else {
+                throw result;
+            }
+        }
+    }
+    build(path: string, starter?: string): Result<ClassicSource, Error> {
+        try {
+            optional(this.context.sources.find(([source, _]) => source.path == path)).some((src) => {
+                src[1].some((target) => {
+                    throw ok(target);
+                }).none(() => {
+                    let mid = src[0];
+                    for(const rule of this.rules) {
+                        mid = rule(mid);
+                    }
+                    mid = this.complete(mid);
+                    this.context.targets.push(mid);
+                    src[1] = some(mid);
+                    throw ok(mid);
+                });
+            }).none(() => {throw err<ClassicTarget, Error>(new Error('source does not exists'))});
+        } catch(result) {
+            if(result instanceof Result<ClassicSource, Error>) {
+                return result;
+            } else {
+                throw result;
+            }
+        }
+        throw new Error('unreachable!');
+    }
+    buildAll(): Result<ClassicSource[], Error> {
+        try {
+            for(const [source, target] of this.context.sources) {
+                if(target.isSome()) {
+                    continue;
+                } else {
+                    this.build(source.path).err((error) => {throw err<ClassicSource[], Error>(error)});
+                }
+            }
+            throw ok(this.context.targets);
+        } catch(result) {
+            if(result instanceof Result<ClassicSource[], Error>) {
+                return result;
+            } else {
+                throw result;
+            }
+        }
+    }
 }
