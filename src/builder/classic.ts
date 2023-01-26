@@ -1,9 +1,14 @@
 import { none, optional, Optional, some } from "../optional";
 
-import path from "path-browserify";
+import pathb from "path-browserify";
+import normalizePath from "normalize-path";
 import { Builder } from ".";
 import { err, ok, Result } from "../result";
 import { StandardIni, CommonToml, implCommonToml, commonTomlEveryKey } from "../config";
+
+export function normalize(pat: string): string {
+    return normalizePath(pathb.normalize(pat));
+}
 
 export interface FileLike {
     filename: string;
@@ -19,14 +24,14 @@ export class PathLike {
 }
 
 export enum ClassicSourceFileType {
-    TOML,
-    TXT,
-    PNG,
-    JPEG,
-    OGG,
-    WAV,
-    MP3,
-    UNKNOWN_ASSET
+    TOML = 'TOML',
+    TXT = 'TXT',
+    PNG = 'PNG',
+    JPEG = 'JPEG',
+    OGG = 'OGG',
+    WAV = 'WAV',
+    MP3 = 'MP3',
+    UNKNOWN_ASSET = 'UNKNOWN_ASSET'
 }
 
 export class ClassicSourceFile {
@@ -35,6 +40,9 @@ export class ClassicSourceFile {
 
     private constructor(type: ClassicSourceFileType, content: CommonToml | string | PathLike) {
         this.type = type;
+        if(content instanceof PathLike) {
+            content.path = normalize(content.path);
+        }
         this.content = content;
     }
 
@@ -48,15 +56,15 @@ export class ClassicSourceFile {
 
     static asset(content: PathLike): ClassicSourceFile {
         return new ClassicSourceFile((() => {
-            if(path.extname(content.path) == '.png') {
+            if(pathb.extname(content.path) == '.png') {
                 return ClassicSourceFileType.PNG;
-            } else if(path.extname(content.path) == '.jpg' || path.extname(content.path) == '.jpeg') {
+            } else if(pathb.extname(content.path) == '.jpg' || pathb.extname(content.path) == '.jpeg') {
                 return ClassicSourceFileType.JPEG;
-            } else if(path.extname(content.path) == '.ogg') {
+            } else if(pathb.extname(content.path) == '.ogg') {
                 return ClassicSourceFileType.OGG;
-            } else if(path.extname(content.path) == '.mp3') {
+            } else if(pathb.extname(content.path) == '.mp3') {
                 return ClassicSourceFileType.MP3;
-            } else if(path.extname(content.path) == '.wav') {
+            } else if(pathb.extname(content.path) == '.wav') {
                 return ClassicSourceFileType.WAV;
             } else {
                 return ClassicSourceFileType.UNKNOWN_ASSET;
@@ -73,7 +81,7 @@ export class ClassicSourceFile {
     }
 
     isImage(): boolean {
-        return this.type == ClassicSourceFileType.PNG;
+        return this.type == ClassicSourceFileType.PNG || this.type == ClassicSourceFileType.JPEG;
     }
 
     isSoundOrMusic(): boolean {
@@ -105,6 +113,39 @@ export class ClassicSourceFile {
         }
         return this;
     }
+
+    image(callback: (content: PathLike) => void): ClassicSourceFile {
+        if(this.isImage()) {
+            if(this.content instanceof PathLike) {
+                callback(this.content);
+            } else {
+                throw new Error('internal error');
+            }
+        }
+        return this;
+    }
+
+    soundOrMusic(callback: (content: PathLike) => void): ClassicSourceFile {
+        if(this.isSoundOrMusic()) {
+            if(this.content instanceof PathLike) {
+                callback(this.content);
+            } else {
+                throw new Error('internal error');
+            }
+        }
+        return this;
+    }
+
+    unknownAsset(callback: (content: PathLike) => void): ClassicSourceFile {
+        if(this.isUnknownAsset()) {
+            if(this.content instanceof PathLike) {
+                callback(this.content);
+            } else {
+                throw new Error('internal error');
+            }
+        }
+        return this;
+    }
 }
 
 export class ClassicSource implements FileLike {
@@ -116,10 +157,11 @@ export class ClassicSource implements FileLike {
 
     private constructor(filename: string, dirname: string, path: string, content: CommonToml | string | PathLike) {
         this.filename = filename;
-        this.dirname = dirname;
-        this.path = path;
+        this.dirname = normalize(dirname);
+        this.path = normalize(path);
         this.target = none();
         if(content instanceof PathLike) {
+            content.path = normalize(content.path);
             this.sourceFile = ClassicSourceFile.asset(content);
         } else if(typeof content == 'object') {
             this.sourceFile = ClassicSourceFile.toml(content);
@@ -197,13 +239,15 @@ export class ClassicTarget implements FileLike {
 
     constructor(filename: string, dirname: string, source: ClassicSource, targetFile: ClassicTargetFile) {
         this.filename = filename;
-        this.dirname = dirname;
+        this.dirname = normalize(dirname);
+        source.dirname = normalize(source.dirname);
+        source.path = normalize(source.path);
         this.source = source;
         this.targetFile = targetFile;
     }
 
     isStandardIni(): boolean {
-        return path.extname(this.filename) == '.ini';
+        return pathb.extname(this.filename) == '.ini';
     }
 }
 
@@ -251,9 +295,9 @@ export class ClassicBuilderSync implements Builder<ClassicSource, ClassicTarget>
             });
             optional(this.context.sources.find((value) => value.path == path)).some((source) => {
                 source.built((target) => {throw ok({source, target})}).unbuilt(() => {
-                    this.buildSync(path).ok((target) => {throw ok({source, target})}).err((error) => {throw err<{source: ClassicSource;target: ClassicTarget;}, Error>(error)});
+                    this.buildSync(path, starterPath).ok((target) => {throw ok({source, target})}).err((error) => {throw err<{source: ClassicSource;target: ClassicTarget;}, Error>(error)});
                 });
-            }).none(() => {throw err(new Error('requirement does not exists'))});
+            }).none(() => {throw err(new Error(`requirement "${path}" does not exists`))});
             throw new Error('unreachable!');
         } catch(result) {
             if(result instanceof Result<{source: ClassicSource;target: ClassicTarget;}, Error>) {
@@ -295,7 +339,19 @@ export class ClassicBuilderSync implements Builder<ClassicSource, ClassicTarget>
                                             if(Array.isArray(value)) {
                                                 return value.join();
                                             } else {
-                                                return value.toString();
+                                                let outputValue = value.toString();
+                                                if(secMain == 'core' && key == 'copyFrom') {
+                                                    let requirePath = normalize(value.toString().trim());
+                                                    if(requirePath.startsWith('/')) {
+                                                        requirePath = requirePath.replace(/^\//, '');
+                                                        outputValue = 'ROOT:' + requirePath;
+                                                    } else {
+                                                        requirePath = normalize(pathb.join(source.dirname, requirePath));
+                                                        outputValue = requirePath;
+                                                    }
+                                                    this.requireSync(requirePath, starterPath != undefined ? starterPath : source.path).err((error) => {throw err(error)});
+                                                }
+                                                return outputValue.replace(/\.toml$/, '.ini');
                                             }
                                         })();
                                     });
@@ -305,8 +361,26 @@ export class ClassicBuilderSync implements Builder<ClassicSource, ClassicTarget>
                             break;
                         }
                     }
-                    const target = new ClassicTarget(source.filename.replace('.toml', '.ini'), source.dirname, source, ClassicTargetFile.ini(ini));
+                    const target = new ClassicTarget(source.filename.replace(/\.toml$/, '.ini'), source.dirname, source, ClassicTargetFile.ini(ini));
                     source.target = some(target);
+                    this.context.targets.push(target);
+                    throw ok(target);
+                }).txt((content) => {
+                    const target = new ClassicTarget(source.filename, source.dirname, source, ClassicTargetFile.txt(content));
+                    source.target = some(target);
+                    this.context.targets.push(target);
+                    throw ok(target);
+                }).image((content) => {
+                    const target = new ClassicTarget(source.filename, source.dirname, source, ClassicTargetFile.asset());
+                    this.context.targets.push(target);
+                    throw ok(target);
+                }).soundOrMusic((content) => {
+                    const target = new ClassicTarget(source.filename, source.dirname, source, ClassicTargetFile.asset());
+                    this.context.targets.push(target);
+                    throw ok(target);
+                }).unknownAsset((content) => {
+                    const target = new ClassicTarget(source.filename, source.dirname, source, ClassicTargetFile.asset());
+                    this.context.targets.push(target);
                     throw ok(target);
                 });
             }).none(() => {throw err<ClassicTarget, Error>(new Error('source does not exists'))});

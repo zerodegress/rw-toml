@@ -69,4 +69,20 @@ describe('ClassicBuilderSync', () => {
             }
         })()).to.equal('0');
     });
+    it('requires and puts the target', () => {
+        const builder = new ClassicBuilderSync('.', 'src', 'dist', [ClassicSource.toml('abc.toml', 'abc', 'abc/abc.toml', { 'core': { 'name': 'az', 'defineUnitMemory': ['string az', 'string ok'] }, 'projectile': {'1': {'x': 0}}})]);
+        expect(builder.requireSync('abc/abc.toml').isOk()).to.equal(true);
+        expect(builder.context.targets.find((target) => target.source.path == 'abc/abc.toml') != undefined).to.equal(true);
+
+    });
+    it('requires the correct file path', () => {
+        const builder = new ClassicBuilderSync('.', 'src', 'dist', [ClassicSource.toml('abc.toml', 'abc', 'abc/abc.toml', { 'core': { 'name': 'az', 'defineUnitMemory': ['string az', 'string ok'] }, 'projectile': {'1': {'x': 0}}})]);
+        expect(builder.requireSync('abc/abc.toml').isOk()).to.equal(true);
+        expect(builder.requireSync('abc/abc.toml').unwrap().source.path).to.equal('abc/abc.toml');
+    });
+    it('requires when need', () => {
+        const builder = new ClassicBuilderSync('.', 'src', 'dist', [ClassicSource.toml('abc.toml', 'abc', 'abc/abc.toml', { 'core': { 'name': 'az', 'copyFrom': '/requires/require.toml', 'defineUnitMemory': ['string az', 'string ok'] }, 'projectile': {'1': {'x': 0}}}), ClassicSource.toml('require.toml', 'requires', 'requires/require.toml', { 'core': { 'displayName': 'require' }})]);
+        expect(builder.buildSync('abc/abc.toml').isOk()).to.equal(true);
+        expect(builder.context.targets.find((target) => target.source.path == 'requires/require.toml') != undefined).to.equal(true);
+    });
 });
